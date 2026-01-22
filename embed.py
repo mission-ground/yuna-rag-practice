@@ -13,10 +13,13 @@ with open("chunks.json", "r", encoding="utf-8") as f:
     chunks = json.load(f)
 
 
-texts = [c["text"] for c in chunks]
+# texts = [c["text"] for c in chunks]
+# titles = [c["title"] for c in chunks]
 ids = [c["id"] for c in chunks]
 
-embeddings = model.encode(texts, normalize_embeddings=True) # 정규화된 벡터?
+contents = [f"{c['title']}: {c['text']}" for c in chunks]
+
+embeddings = model.encode(contents, normalize_embeddings=True) # 정규화된 벡터?
 
 # print(type(embeddings))
 # print(type(embeddings[0]))
@@ -31,7 +34,7 @@ collection = client.get_or_create_collection(name="chunks_docs")
 
 if collection.count() == 0:
     collection.add(
-        documents=texts,
+        documents=contents,
         embeddings=embeddings.tolist(),
         ids=ids
     )

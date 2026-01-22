@@ -37,13 +37,29 @@ while True:
     if user_input.lower() in ["exit", "quit"]:
         break
 
+    rewrite_prompt = f"""
+다음 질문을 문서 검색에 적합한 짧은 검색 문장으로 변환하라.
+설명하지 말고, 핵심 키워드 중심으로 작성하라.
+질문: {user_input}
+"""
+
+    rewritten_response =client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+        {"role": "system", "content": "너는 검색 쿼리를 재작성하는 역할이다."},
+        {"role": "user", "content": rewrite_prompt}
+    ]
+    )
+    rewritten_query = rewritten_response.choices[0].message.content.strip()
+
+    print("◎rewritten_query : "+rewritten_query)
     
-    # 🔥 1. 벡터 검색
-    docs = search(user_input)
+    #  1. 벡터 검색
+    docs = search(rewritten_query)
 
     context = "\n\n".join(docs)
 
-    # 🔥 2. RAG 프롬프트
+    #  2. RAG 프롬프트
     rag_prompt = f"""
 아래 문서를 참고해서 질문에 답해라.
 문서에 없는 내용은 추측하지 마라.
