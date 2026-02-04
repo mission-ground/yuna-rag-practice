@@ -1,11 +1,11 @@
 from openai import OpenAI
-from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, MODEL_NAME
+from config import GROQ_API_KEY, BASE_URL, MODEL_NAME
 from embed import search
 
 
 client = OpenAI(
-    api_key=OPENROUTER_API_KEY,
-    base_url=OPENROUTER_BASE_URL
+    api_key=GROQ_API_KEY,
+    base_url=BASE_URL
 )
 
 messages=[
@@ -48,7 +48,7 @@ while True:
         messages=[
         {"role": "system", "content": "너는 검색 쿼리를 재작성하는 역할이다."},
         {"role": "user", "content": rewrite_prompt}
-    ]
+        ]
     )
     rewritten_query = rewritten_response.choices[0].message.content.strip()
 
@@ -75,7 +75,7 @@ while True:
 
     response = client.chat.completions.create(
         model=MODEL_NAME,
-        messages=messages,
+        messages=messages
         # tools=tools,
         # tool_choice="auto"
     )
