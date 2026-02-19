@@ -1,9 +1,7 @@
 from sentence_transformers import SentenceTransformer
 import chromadb
-from collections import defaultdict
 from splitter import get_chunks
 from langchain_community.document_loaders import TextLoader
-import uuid
 
 # =============================
 # 모델 로드
@@ -13,53 +11,49 @@ model = SentenceTransformer(
 )
 
 # =============================
-# 문서 로드 + 청크 분리
+# 문서 로드 + Parent-Child 분리
 # =============================
 loader = TextLoader("data.txt", encoding="utf-8")
 documents = loader.load()
 
-chunks = get_chunks(documents) #, strategy="basic"
+result = get_chunks(documents, strategy="parent_child")
 
-print("총 청크 수:", len(chunks))
+parent_docs = result["parents"]
+child_chunks = result["children"]
 
-# =============================
-# ID & 메타데이터 정리
-# =============================
-ids = []
-contents = []
-metadatas = []
-anchor_map = defaultdict(list)
-
-for i, chunk in enumerate(chunks):
-
-    # 앵커는 기존 anchor_id 사용
-    if "id" in chunk.metadata:
-        chunk_id = chunk.metadata["id"]
-    else:
-        chunk_id = f"chunk_{i}"
-
-    ids.append(chunk_id)
-
-    contents.append(chunk.page_content)
-
-    # parent_id가 metadata에 있으면 child
-    parent_id = chunk.metadata.get("parent_id")
-
-    if parent_id:
-        metadatas.append({
-            "type": "child",
-            "parent_id": parent_id
-        })
-        anchor_map[parent_id].append(chunk_id)
-    else:
-        metadatas.append({
-            "type": "anchor"
-        })
+print("Parent 수:", len(parent_docs))
+print("Child 수:", len(child_chunks))
 
 # =============================
-# 임베딩
+# Parent Docstore 구성
 # =============================
-embeddings = model.encode(contents, normalize_embeddings=True)
+docstore = {}
+
+for parent in parent_docs:
+    parent_id = parent.metadata["id"]
+    docstore[parent_id] = parent.page_content
+
+# =============================
+# Child 벡터용 데이터 준비
+# =============================
+child_contents = []
+child_ids = []
+child_metadatas = []
+
+for i, chunk in enumerate(child_chunks):
+    chunk_id = f"chunk_{i}"
+
+    child_ids.append(chunk_id)
+    child_contents.append(chunk.page_content)
+
+    child_metadatas.append({
+        "parent_id": chunk.metadata["parent_id"]
+    })
+
+# =============================
+# 임베딩 (Child만)
+# =============================
+embeddings = model.encode(child_contents, normalize_embeddings=True)
 
 # =============================
 # Chroma 저장
@@ -72,59 +66,42 @@ except:
     pass
 
 collection = client.create_collection(name="chunks_docs")
+
 collection.add(
-    documents=contents,
+    documents=child_contents,
     embeddings=embeddings.tolist(),
-    ids=ids,
-    metadatas=metadatas
+    ids=child_ids,
+    metadatas=child_metadatas
 )
 
 print("DB 문서 수:", collection.count())
 
-
-# =============================
-# 검색 함수
-# =============================
-def search(query: str, k_anchor: int = 1, k_chunk: int = 5):
+def search(query: str, k_chunk: int = 3):
 
     query_embedding = model.encode([query], normalize_embeddings=True)
 
-    # 1️⃣ 앵커 검색
-    anchor_results = collection.query(
+    # 1️⃣ Child 검색
+    results = collection.query(
         query_embeddings=query_embedding.tolist(),
-        n_results=k_anchor,
-        where={"type": "anchor"}
+        n_results=k_chunk
     )
 
-    if not anchor_results["ids"][0]:
+    if not results["ids"][0]:
         return []
 
-    anchor_id = anchor_results["ids"][0][0]
-    best_distance = anchor_results["distances"][0][0]
+    # 2️⃣ 가장 유사한 child의 parent_id 가져오기
+    best_parent_id = results["metadatas"][0][0]["parent_id"]
+    best_distance = results["distances"][0][0]
 
-    print("Top Anchor:", anchor_id)
+    print("Best Parent:", best_parent_id)
     print("Distance:", best_distance)
 
-    # 2️⃣ 해당 앵커의 child 찾기
-    child_ids = anchor_map.get(anchor_id, [])
+    # 3️⃣ Parent 복원
+    parent_text = docstore.get(best_parent_id)
 
-    if best_distance <= 0.8 and child_ids:
-        chunk_results = collection.query(
-            query_embeddings=query_embedding.tolist(),
-            n_results=k_chunk,
-            ids=child_ids
-        )
-        return chunk_results["documents"][0]
-
-    # 3️⃣ fallback
-    fallback_results = collection.query(
-        query_embeddings=query_embedding.tolist(),
-        n_results=3,
-        where={"type": "child"}
-    )
-    return fallback_results["documents"][0]
+    return parent_text
 
 
 # 테스트
 if __name__ == "__main__":
-    print(search("RAG란 무엇인가요?"))
+    print(search("RAG의 한계는 무엇인가요?"))

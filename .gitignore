@@ -209,6 +209,7 @@ __marimo__/
 # python
 __pycache__/
 *.pyc
+*copy.py
 
 # venv
 venv/

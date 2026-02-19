@@ -1,75 +1,90 @@
-# splitter.py
+# chunk_size
+# overlap
+# parent-child 함수
+# basic_split
+# parent_child_split
 
-from langchain_core.documents import Document
-import re
-import uuid
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from typing import List, Dict
 
 
-def get_chunks(documents):
-    """
-    Anchor-Child 구조로 분리하는 함수
-    """
+# =========================
+# Basic Splitter
+# =========================
+def basic_split(
+    documents: List[str],
+    chunk_size: int = 500,
+    chunk_overlap: int = 100,
+) -> List[str]:
 
-    text = documents[0].page_content
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
+    )
 
-    # 1️⃣ 줄 단위 분리
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-    chunks = []
-    current_anchor_id = None
-    current_anchor_title = None
-    buffer = []
-
-    for line in lines:
-
-        # 2️⃣ 제목 판단 기준 (짧고 마침표 없는 줄)
-        if len(line) < 30 and not line.endswith("."):
-
-            # 이전 anchor 저장
-            if current_anchor_title:
-                anchor_doc = Document(
-                    page_content=current_anchor_title,
-                    metadata={
-                        "id": current_anchor_id
-                    }
-                )
-                chunks.append(anchor_doc)
-
-                # child 저장
-                for paragraph in buffer:
-                    child_doc = Document(
-                        page_content=paragraph,
-                        metadata={
-                            "parent_id": current_anchor_id
-                        }
-                    )
-                    chunks.append(child_doc)
-
-            # 새로운 anchor 시작
-            current_anchor_id = f"anchor_{uuid.uuid4().hex[:8]}"
-            current_anchor_title = line
-            buffer = []
-
-        else:
-            buffer.append(line)
-
-    # 마지막 anchor 처리
-    if current_anchor_title:
-        anchor_doc = Document(
-            page_content=current_anchor_title,
-            metadata={
-                "id": current_anchor_id
-            }
-        )
-        chunks.append(anchor_doc)
-
-        for paragraph in buffer:
-            child_doc = Document(
-                page_content=paragraph,
-                metadata={
-                    "parent_id": current_anchor_id
-                }
-            )
-            chunks.append(child_doc)
+    chunks = splitter.split_documents(documents)
 
     return chunks
+
+
+# =========================
+# Parent-Child Splitter
+# =========================
+def parent_child_split(
+    documents: List[str],
+    parent_chunk_size: int = 1500,
+    parent_overlap: int = 200,
+    child_chunk_size: int = 400,
+    child_overlap: int = 50,
+) -> Dict[str, List]:
+
+    # 1️⃣ Parent 생성
+    parent_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=parent_chunk_size,
+        chunk_overlap=parent_overlap
+    )
+
+    parents = parent_splitter.split_documents(documents)
+
+    # 2️⃣ Child 생성
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=child_chunk_size,
+        chunk_overlap=child_overlap
+    )
+
+    child_chunks = []
+    parent_docs = []
+
+    for idx, parent in enumerate(parents):
+        parent_id = f"parent_{idx}"
+
+        # parent 메타데이터에 ID 추가
+        parent.metadata["id"] = parent_id
+        parent_docs.append(parent)
+
+        # child 생성
+        children = child_splitter.split_documents([parent])
+
+        for child in children:
+            child.metadata["parent_id"] = parent_id
+            child_chunks.append(child)
+
+    return {
+        "parents": parent_docs,
+        "children": child_chunks
+    }
+
+
+# =========================
+# 전략 선택 함수
+# =========================
+def get_chunks(documents: List[str], strategy: str = "basic"):
+
+    if strategy == "basic":
+        return basic_split(documents)
+
+    elif strategy == "parent_child":
+        return parent_child_split(documents)
+
+    else:
+        raise ValueError("Unknown strategy")
